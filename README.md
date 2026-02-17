@@ -1,4 +1,11 @@
-pqc-core/
+
+
+Goal:
+Experimental Post-Quantum Cryptography framework
+based on LWE variants.
+
+WARNING:
+This project is experimental and NOT production secure.pqc-core/
  ├── crypto/
  │   ├── lwe.rs
  │   ├── ring_lwe.rs
