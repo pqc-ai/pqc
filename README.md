@@ -1,2 +1,14 @@
-# pqc
-High-precision core system logic built with Rust, implementing decentralized ledger structures for maximum memory safety and integrity. Designed as a permissionless framework, this project invites global collaboration to audit and optimize autonomous system architectures. No central authority—just pure, immutable code. Join the consensus."
+pqc-core/
+ ├── crypto/
+ │   ├── lwe.rs
+ │   ├── ring_lwe.rs
+ │   ├── noise.rs
+ │   └── params.rs
+ ├── math/
+ │   ├── poly.rs
+ │   └── ntt.rs
+ ├── protocol/
+ │   ├── encrypt.rs
+ │   └── decrypt.rs
+ ├── tests/
+ └── README.md
