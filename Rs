@@ -1,0 +1,213 @@
+use rand::Rng;
+use sha3::{Digest, Sha3_256};
+
+const N: usize = 256;
+const Q: i32 = 3329;
+
+// =====================
+// Polynomial Structure
+// =====================
+#[derive(Clone, Debug)]
+pub struct Poly {
+    pub coeffs: [i32; N],
+}
+
+impl Poly {
+    pub fn zero() -> Self {
+        Self { coeffs: [0; N] }
+    }
+
+    pub fn add(&self, other: &Self) -> Self {
+        let mut r = Self::zero();
+        for i in 0..N {
+            r.coeffs[i] = (self.coeffs[i] + other.coeffs[i]).rem_euclid(Q);
+        }
+        r
+    }
+
+    pub fn sub(&self, other: &Self) -> Self {
+        let mut r = Self::zero();
+        for i in 0..N {
+            r.coeffs[i] = (self.coeffs[i] - other.coeffs[i]).rem_euclid(Q);
+        }
+        r
+    }
+}
+
+// =====================
+// Polynomial Multiply
+// Ring: x^n - x + 1
+// =====================
+pub fn poly_mul(a: &Poly, b: &Poly) -> Poly {
+    let mut res = [0i32; N];
+
+    for i in 0..N {
+        for j in 0..N {
+            let mut idx = i + j;
+            let mut val = a.coeffs[i] * b.coeffs[j];
+
+            if idx >= N {
+                idx -= N;
+                // reduction: x^n = x - 1
+                res[idx] -= val;
+                res[(idx + 1) % N] += val;
+            } else {
+                res[idx] += val;
+            }
+        }
+    }
+
+    let mut out = Poly::zero();
+    for i in 0..N {
+        out.coeffs[i] = res[i].rem_euclid(Q);
+    }
+    out
+}
+
+// =====================
+// Random Poly (uniform)
+// =====================
+pub fn random_poly() -> Poly {
+    let mut rng = rand::thread_rng();
+    let mut p = Poly::zero();
+
+    for i in 0..N {
+        p.coeffs[i] = rng.gen_range(0..Q);
+    }
+    p
+}
+
+// =====================
+// Sparse Secret {-1,0,1}
+// =====================
+pub fn sparse_poly() -> Poly {
+    let mut rng = rand::thread_rng();
+    let mut p = Poly::zero();
+
+    for i in 0..N {
+        p.coeffs[i] = rng.gen_range(-1..=1);
+    }
+    p
+}
+
+// =====================
+// Hash → Noise
+// =====================
+pub fn hash_to_noise(seed: &[u8]) -> Poly {
+    let mut hasher = Sha3_256::new();
+    hasher.update(seed);
+    let digest = hasher.finalize();
+
+    let mut p = Poly::zero();
+
+    for i in 0..N {
+        let byte = digest[i % digest.len()];
+        p.coeffs[i] = (byte as i32 % 5) - 2; // [-2..2]
+    }
+
+    p
+}
+
+// =====================
+// Message Encoding
+// =====================
+pub fn encode_message(msg: &[u8]) -> Poly {
+    let mut p = Poly::zero();
+
+    for i in 0..msg.len().min(N) {
+        p.coeffs[i] = if msg[i] & 1 == 1 { Q / 2 } else { 0 };
+    }
+
+    p
+}
+
+pub fn decode_message(p: &Poly) -> Vec<u8> {
+    let mut msg = vec![0u8; N];
+
+    for i in 0..N {
+        msg[i] = if p.coeffs[i] > Q / 4 { 1 } else { 0 };
+    }
+
+    msg
+}
+
+// =====================
+// Key Structures
+// =====================
+pub struct PublicKey {
+    pub a: Poly,
+    pub b: Poly,
+}
+
+pub struct SecretKey {
+    pub s: Poly,
+}
+
+pub struct Ciphertext {
+    pub u: Poly,
+    pub v: Poly,
+}
+
+// =====================
+// KeyGen
+// =====================
+pub fn keygen() -> (PublicKey, SecretKey) {
+    let a = random_poly();
+    let s = sparse_poly();
+
+    let seed = b"noise_seed";
+    let e = hash_to_noise(seed);
+
+    let b = poly_mul(&a, &s).add(&e);
+
+    (PublicKey { a: a.clone(), b }, SecretKey { s })
+}
+
+// =====================
+// Encapsulation
+// =====================
+pub fn encaps(pk: &PublicKey, msg: &[u8]) -> (Ciphertext, Vec<u8>) {
+    let m_poly = encode_message(msg);
+
+    let r = sparse_poly();
+    let e1 = hash_to_noise(b"e1");
+    let e2 = hash_to_noise(b"e2");
+
+    let u = poly_mul(&pk.a, &r).add(&e1);
+    let v = poly_mul(&pk.b, &r).add(&e2).add(&m_poly);
+
+    let mut hasher = Sha3_256::new();
+    hasher.update(msg);
+    hasher.update(&[1,2,3]);
+    let shared_key = hasher.finalize().to_vec();
+
+    (Ciphertext { u, v }, shared_key)
+}
+
+// =====================
+// Decapsulation
+// =====================
+pub fn decaps(ct: &Ciphertext, sk: &SecretKey) -> Vec<u8> {
+    let us = poly_mul(&ct.u, &sk.s);
+    let m_poly = ct.v.sub(&us);
+
+    decode_message(&m_poly)
+}
+
+// =====================
+// Demo Main
+// =====================
+fn main() {
+    println!("=== PQC-Core RLWE (Experimental) ===");
+
+    let (pk, sk) = keygen();
+
+    let message = b"HELLO";
+    let (ct, key_enc) = encaps(&pk, message);
+
+    let recovered = decaps(&ct, &sk);
+
+    println!("Original msg: {:?}", message);
+    println!("Recovered: {:?}", &recovered[..message.len()]);
+    println!("Shared key: {:?}", key_enc);
+}
